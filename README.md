@@ -1,4 +1,4 @@
-### Skylo Regional Hub – us-west-2
+### Skylo Regional Hub
 
 This document describes the design and Terraform implementation for a new Skylo Regional Hub in the `us-west-2` (Oregon) region.
 
