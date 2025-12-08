@@ -248,7 +248,130 @@ terraform apply
 
 ```
 
+### Security & Observability
 
+### Security
+For this hub, each workload uses its own IAM role (IRSA for EKS service accounts) so that permissions are provided as per service and followed least privilege.
+
+Roles I would create
+
+- Session Service Role
+
+  Allows read/write access only to the DynamoDB tables or ElastiCache clusters used for session state.
+
+- Ingress/Egress Service Role
+
+  Allows PutObject to one S3 bucket or prefix for logs/telemetry.
+
+  No ability to list buckets, read objects, or access other prefixes.
+
+- Cluster Autoscaler Role
+
+  Can describe and modify only the node groups belonging to this EKS cluster.
+
+- Load Balancer Controller Role
+
+  Can create/update ALBs/NLBs and target groups in this VPC.
+
+- Log Forwarder Role (Fluent Bit)
+
+  Can push logs to CloudWatch Logs or a dedicated S3 prefix.
+
+- Secrets Access Role
+
+  Can read (GetSecretValue) from exactly one Secrets Manager secret per workload.
+
+  No permission to list or modify secrets.
+
+
+### Permissions to avoid
+
+- I avoid "*" permissions and full AdministratorAccess so workloads cannot perform actions outside their scope.
+- Workloads should never be able to create, update, or delete IAM roles, users, or policies (iam:*).
+- Services do not need to modify security groups, route tables, VPC settings, or Transit Gateway attachments.
+- I do not allow workloads to read, delete, or list all objects in S3. Each service should only access its own bucket or folder, nothing more.
+- A workload should only decrypt data that belongs to it. I avoid giving decrypt permissions to keys owned by other services or any kind of multi-key access.
+- Workloads should not delete logs, S3 objects, or database items. Removing shared or historical data can cause data loss and impact troubleshooting.
+- I avoid giving permissions that allow scanning unrelated DynamoDB tables, reading shared buckets, or accessing Secrets Manager entries not assigned to them.
+
+### AWS Security Services I Would Enable First
+
+- AWS KMS (Key Management Service) :  KMS comes first, because your hub handles sensitive device traffic, session data, logs, and secrets from the moment it is created, without KMS ready on day one, resources may start storing unencrypted data.
+
+  KMS ensures:
+  - S3 buckets for ingress data are encrypted
+  - DynamoDB or Redis session state is encrypted
+  - EKS node volumes are encrypted
+  - Secrets Manager uses CMKs
+  - All encryption operations are logged
+    
+- Amazon GuardDuty : GuardDuty comes next because this hub receives traffic from external ground stations through Direct Connect, which creates a unique risk surface.
+
+  GuardDuty immediately begins monitoring for:
+
+  - Suspicious API calls
+
+  - Compromised IAM roles or keys
+
+  - Unusual behavior inside EKS pods
+
+  - Odd VPC traffic patterns
+
+  - Unexpected DNS activity
+
+- AWS Config: Config is the third service because it prevents misconfigurations, the most common cause of security incidents.
+
+  Config checks:
+
+  - All buckets are encrypted
+
+  - No public access to private subnets
+
+  - Security groups follow least privilege
+
+  - EKS logging stays enabled
+
+  - IAM roles follow least privilege
+
+  - CloudTrail and VPC Flow Logs remain active
+ 
+### Metrics
+
+- Latency:  Latency tells me how quickly each service is responding, Hub that processes real-time satellite data, any increase in latency is one of the first signs that a service is overloaded or something downstream is slowing things down.
+- Resource Usage (CPU, Memory, and Pod Restarts):  I would closely monitor CPU and memory usage at both the pod and node level. High CPU, memory pressure, or repeated restarts usually means a workload is running out of resources, memory Leaks, or experiencing instability.
+- Network Health (Errors and Traffic Volume):  I would monitor Network errors, Packet drops, Bandwidth usage
+
+### Observability
+
+- Prometheus – Metrics Collection : I would use Prometheus to collect all the operational metrics from the EKS workloads. Prometheus integrates well with Kubernetes and gives detailed visibility into things like:
+
+  - request latency
+  - CPU and memory usage
+  - pod restarts and failures
+  - network traffic and throughput
+ 
+- Grafana – Dashboards and Visualization:  Grafana sits on top of Prometheus and provides easy-to-read dashboards.
+  I’d use Grafana to visualize:
+    - how services are performing over time
+    - how the cluster scales under load
+    - node and pod health
+    - traffic patterns across the hub
+ 
+- CloudWatch – Logging and Alerts:  CloudWatch would serve as the central place for all logs and alerting signals.
+I’d configure CloudWatch to capture:
+  - cluster-level logs (EKS control plane)
+  - application logs (via CloudWatch agents or EKS integrations)
+  - VPC Flow Logs
+  - Load balancer access logs
+
+  CloudWatch Alarms:  I’d set up alarms for:
+    - high latency
+    - high CPU or memory
+    - repeated pod failures
+    - unhealthy nodes
+    - unusual network activity
+
+  Alerts can then be routed to Slack, PagerDuty, or whichever on-call tool the team uses.
 
 
 
